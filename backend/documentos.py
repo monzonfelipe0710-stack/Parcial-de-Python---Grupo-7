@@ -345,3 +345,30 @@ def generar_documento_pdf(contrato):
     lienzo.drawText(texto)
     lienzo.save()
     return ruta_pdf
+
+
+def generar_documento_pdf(contrato):
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    ruta_docx = DIRECTORIO_GENERADOS / f"{contrato['id']}.docx"
+    ruta_pdf = DIRECTORIO_GENERADOS / f"{contrato['id']}.pdf"
+    documento = Document(ruta_docx)
+
+    lienzo = canvas.Canvas(str(ruta_pdf), pagesize=A4)
+    _, alto = A4
+    texto = lienzo.beginText(40, alto - 40)
+    texto.setFont("Helvetica", 10)
+
+    for parrafo in documento.paragraphs:
+        linea = parrafo.text or ""
+        if texto.getY() < 40:
+            lienzo.drawText(texto)
+            lienzo.showPage()
+            texto = lienzo.beginText(40, alto - 40)
+            texto.setFont("Helvetica", 10)
+        texto.textLine(linea)
+
+    lienzo.drawText(texto)
+    lienzo.save()
+    return ruta_pdf

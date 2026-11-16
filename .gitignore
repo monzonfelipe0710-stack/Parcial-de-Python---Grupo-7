@@ -7,3 +7,6 @@ dist
 /documentos_generados/*.pdf
 __pycache__/
 *.pyc
+/documentos_generados/*.pdf
+__pycache__/
+*.pyc
