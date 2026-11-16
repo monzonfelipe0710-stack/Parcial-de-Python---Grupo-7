@@ -73,7 +73,7 @@ export async function enviarMensajeAsistente({ mensaje, historial, datos }) {
     {
       method: 'POST',
       body: JSON.stringify({ mensaje, historial, datos }),
-      tiempoLimite: 150000
+      tiempoLimite: 270000
     }
   )
 }
