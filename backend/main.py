@@ -195,8 +195,29 @@ def conversar_con_asistente(solicitud: MensajeAsistenteRequest):
         raise HTTPException(status_code=422, detail="El mensaje no puede estar vacío.")
 
     datos = _normalizar_datos(solicitud.datos)
+
+    historial = [
+        {
+            "role": "assistant" if item.rol == "asistente" else "user",
+            "content": item.texto,
+        }
+        for item in solicitud.historial
+    ]
+    if (
+        historial
+        and historial[-1]["role"] == "user"
+        and historial[-1]["content"].strip() == mensaje
+    ):
+        historial.pop()
+
+    pregunta_previa = ""
+    for item in reversed(historial):
+        if item["role"] == "assistant":
+            pregunta_previa = item["content"]
+            break
+
     try:
-        extraidos = ia.extraer_datos(mensaje)
+        extraidos = ia.extraer_datos(mensaje, contexto=pregunta_previa)
     except (requests.RequestException, ValueError) as error:
         raise HTTPException(
             status_code=502,
@@ -215,20 +236,6 @@ def conversar_con_asistente(solicitud: MensajeAsistenteRequest):
         f"{clave}: {detalle}"
         for clave, detalle in errores.items()
     ]
-
-    historial = [
-        {
-            "role": "assistant" if item.rol == "asistente" else "user",
-            "content": item.texto,
-        }
-        for item in solicitud.historial
-    ]
-    if (
-        historial
-        and historial[-1]["role"] == "user"
-        and historial[-1]["content"].strip() == mensaje
-    ):
-        historial.pop()
 
     try:
         texto_respuesta = ia.consultar_ia(

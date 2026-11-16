@@ -34,17 +34,18 @@ def _normalizar_para_comparar(valor):
     )
 
 
-def _valor_respaldado_por_mensaje(valor, mensaje, clave):
+def _valor_respaldado_por_mensaje(valor, mensaje, clave, contexto=""):
     if isinstance(valor, bool) or not isinstance(valor, (str, int, float)):
         return False
 
     valor_texto = str(valor).strip()
     mensaje_normalizado = _normalizar_para_comparar(mensaje)
+    texto_con_contexto = _normalizar_para_comparar(f"{mensaje} {contexto}")
 
     if clave in ("documento", "documento_representante"):
         if (
             clave == "documento_representante"
-            and "representante" not in mensaje_normalizado
+            and "representante" not in texto_con_contexto
         ):
             return False
         digitos_valor = "".join(caracter for caracter in valor_texto if caracter.isdigit())
@@ -52,13 +53,13 @@ def _valor_respaldado_por_mensaje(valor, mensaje, clave):
         return bool(digitos_valor) and digitos_valor in digitos_mensaje
 
     if clave == "domicilio" and not any(
-        referencia in mensaje_normalizado for referencia in ("domicilio", "direccion")
+        referencia in texto_con_contexto for referencia in ("domicilio", "direccion")
     ):
         return False
 
     if clave == "ciudad":
         contexto_ciudad = any(
-            referencia in mensaje_normalizado
+            referencia in texto_con_contexto
             for referencia in (
                 "ciudad",
                 "celebracion",
@@ -69,11 +70,11 @@ def _valor_respaldado_por_mensaje(valor, mensaje, clave):
             )
         )
         contexto_domicilio = any(
-            referencia in mensaje_normalizado
+            referencia in texto_con_contexto
             for referencia in ("domicilio", "direccion")
         )
         contexto_contrato = any(
-            referencia in mensaje_normalizado
+            referencia in texto_con_contexto
             for referencia in ("celebracion", "firmamos", "firmara")
         )
         if not contexto_ciudad or (contexto_domicilio and not contexto_contrato):
@@ -200,7 +201,7 @@ def consultar_ia(
 
 
 # Función para extraer datos del mensaje
-def extraer_datos(mensaje):
+def extraer_datos(mensaje, contexto=""):
 
     instrucciones = f"""
     Extraé únicamente los datos que aparezcan explícitamente
@@ -213,17 +214,22 @@ def extraer_datos(mensaje):
     Si un dato no aparece, omitilo.
     No inventes ni completes información.
     No uses valores como "no disponible".
+    Si hay una pregunta previa del asistente, usala solo para saber
+    a qué campo corresponde la respuesta del usuario.
+    Tomá los valores únicamente del mensaje del usuario.
     """
+
+    mensajes = [{"role": "system", "content": instrucciones}]
+    if contexto:
+        mensajes.append({"role": "assistant", "content": contexto})
+    mensajes.append({"role": "user", "content": mensaje})
 
     respuesta = requests.post(
         URL_OLLAMA,
         json={
             "model": "llama3.2:3b",
             "format": "json",
-            "messages": [
-                {"role": "system", "content": instrucciones},
-                {"role": "user", "content": mensaje}
-            ],
+            "messages": mensajes,
             "stream": False,
             "options": {"temperature": 0}
         },
@@ -289,7 +295,9 @@ def extraer_datos(mensaje):
                     flags=re.IGNORECASE,
                 ).strip()
 
-            if not _valor_respaldado_por_mensaje(valor, mensaje, clave):
+            if not _valor_respaldado_por_mensaje(
+                valor, mensaje, clave, contexto=contexto
+            ):
                 continue
 
             if str(valor).lower() in invalidos:
