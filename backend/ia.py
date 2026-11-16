@@ -23,6 +23,29 @@ MESES = (
     "noviembre",
     "diciembre",
 )
+ABREVIATURAS_DE_DOMICILIO = (
+    "av",
+    "avda",
+    "bv",
+    "bvar",
+    "gral",
+    "dr",
+    "dra",
+    "ing",
+    "pje",
+    "pte",
+    "pres",
+    "sta",
+    "sto",
+    "cnel",
+    "tte",
+    "prof",
+    "dpto",
+    "depto",
+    "nro",
+    "km",
+)
+PALABRAS_DE_INICIO_DE_ORACION = ("el", "la", "los", "las", "y", "su", "sus")
 
 
 def _normalizar_para_comparar(valor):
@@ -97,25 +120,57 @@ def _valor_respaldado_por_mensaje(valor, mensaje, clave, contexto=""):
     return False
 
 
+def _cortar_domicilio(valor):
+    for fin_de_oracion in re.finditer(r"\.\s+", valor):
+        palabra_anterior = re.search(r"(\w+)$", valor[: fin_de_oracion.start()])
+        if palabra_anterior is None:
+            continue
+
+        palabra_siguiente = re.match(r"\w+", valor[fin_de_oracion.end() :])
+        anterior = palabra_anterior.group(1).casefold()
+        siguiente = ""
+        if palabra_siguiente is not None:
+            siguiente = palabra_siguiente.group(0).casefold()
+
+        if anterior in ABREVIATURAS_DE_DOMICILIO:
+            continue
+
+        if len(anterior) == 1 and siguiente not in PALABRAS_DE_INICIO_DE_ORACION:
+            continue
+
+        valor = valor[: fin_de_oracion.start()]
+        break
+
+    otro_domicilio = re.search(
+        r"(?:,\s*|\s+)(?:y\s+)?(?:el\s+)?domicilio\b",
+        valor,
+        flags=re.IGNORECASE,
+    )
+    if otro_domicilio:
+        valor = valor[: otro_domicilio.start()]
+
+    return valor.strip().rstrip(".").strip()
+
+
 def _domicilios_explicitos(mensaje):
     domicilios = {}
     expresiones = (
         (
             "parte_contratante",
             r"\bdomicilio\s+(?:de\s+)?(?:la\s+)?parte\s+contratante"
-            r"\s*(?:es|:|=)\s*(?P<valor>[^;\n]+)",
+            r"\s*(?:\bes\b\s*:?|:|=)\s*(?P<valor>[^;\n]+)",
         ),
         (
             "parte_prestadora",
             r"\bdomicilio\s+(?:de\s+)?(?:la\s+)?parte\s+prestadora"
-            r"\s*(?:es|:|=)\s*(?P<valor>[^;\n]+)",
+            r"\s*(?:\bes\b\s*:?|:|=)\s*(?P<valor>[^;\n]+)",
         ),
     )
 
     for seccion, expresion in expresiones:
         coincidencia = re.search(expresion, mensaje, flags=re.IGNORECASE)
         if coincidencia:
-            valor = coincidencia.group("valor").strip().rstrip(".")
+            valor = _cortar_domicilio(coincidencia.group("valor"))
             if valor:
                 domicilios[seccion] = valor
 
