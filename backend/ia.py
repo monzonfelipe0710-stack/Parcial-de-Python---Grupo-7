@@ -25,6 +25,7 @@ MESES = (
     "diciembre",
 )
 MESES_POR_NOMBRE = {nombre: numero for numero, nombre in enumerate(MESES, start=1)}
+MESES_POR_NOMBRE["setiembre"] = 9
 
 CLAVES_DE_FECHA = ("fecha_celebracion", "fecha_inicio", "fecha_fin")
 CLAVES_NUMERICAS = ("importe_total", "cantidad_cuotas", "importe_cuota")
@@ -60,12 +61,15 @@ ABREVIATURAS_DE_DOMICILIO = (
 PALABRAS_DE_INICIO_DE_ORACION = ("el", "la", "los", "las", "y", "su", "sus")
 
 PATRON_FECHA_ISO = r"(?<!\d)(?P<anio>\d{4})-(?P<mes>\d{1,2})-(?P<dia>\d{1,2})(?!\d)"
-PATRON_FECHA_LARGA = (
-    r"(?<!\d)(?P<dia>\d{1,2})\s+de\s+(?P<mes>"
-    + "|".join(MESES_POR_NOMBRE)
-    + r")\s+de\s+(?P<anio>\d{4})(?!\d)"
+PATRON_FECHA_NUMERICA = (
+    r"(?<!\d)(?P<dia>\d{1,2})[/.\-](?P<mes>\d{1,2})[/.\-](?P<anio>\d{4})(?!\d)"
 )
-PATRONES_DE_FECHA = (PATRON_FECHA_ISO, PATRON_FECHA_LARGA)
+PATRON_FECHA_LARGA = (
+    r"(?<!\d)(?P<dia>\d{1,2})\s*(?:\.?º|°|ro)?\s+de\s+(?P<mes>"
+    + "|".join(MESES_POR_NOMBRE)
+    + r")\s+(?:de|del)\s+(?P<anio>\d{4})(?!\d)"
+)
+PATRONES_DE_FECHA = (PATRON_FECHA_ISO, PATRON_FECHA_NUMERICA, PATRON_FECHA_LARGA)
 
 
 def _solo_digitos(texto):
@@ -148,6 +152,20 @@ def _numeros_del_mensaje(mensaje):
         if numero is not None:
             numeros.add(numero)
     return numeros
+
+
+def _numero_como_texto(numero):
+    return format(numero.normalize(), "f")
+
+
+def _normalizar_valor(valor, clave):
+    if clave in CLAVES_DE_FECHA:
+        return _interpretar_fecha(valor).isoformat()
+
+    if clave in CLAVES_NUMERICAS:
+        return _numero_como_texto(_interpretar_numero(valor))
+
+    return valor
 
 
 def _normalizar_para_comparar(valor):
@@ -373,6 +391,9 @@ def extraer_datos(mensaje, contexto=""):
     Si un dato no aparece, omitilo.
     No inventes ni completes información.
     No uses valores como "no disponible".
+    Escribí las fechas con formato AAAA-MM-DD.
+    Escribí los importes y la cantidad de cuotas como números,
+    sin símbolos ni separadores de miles.
     Si hay una pregunta previa del asistente, usala solo para saber
     a qué campo corresponde la respuesta del usuario.
     Tomá los valores únicamente del mensaje del usuario.
@@ -458,6 +479,8 @@ def extraer_datos(mensaje, contexto=""):
                 valor, mensaje, clave, seccion, contexto
             ):
                 continue
+
+            valor = _normalizar_valor(valor, clave)
 
             if str(valor).lower() in invalidos:
                 continue
