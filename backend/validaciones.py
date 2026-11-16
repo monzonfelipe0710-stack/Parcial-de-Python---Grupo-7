@@ -114,6 +114,9 @@ def validar_importe(valor):
     if numero <= 0:
         return "El importe debe ser mayor que cero."
 
+    if numero.normalize().as_tuple().exponent < -2:
+        return "El importe puede tener como máximo dos decimales."
+
     return None
 
 
@@ -204,8 +207,9 @@ def validar_contrato(datos):
             Decimal(str(total))
             - Decimal(str(cuotas)) * Decimal(str(importe_cuota))
         )
+        tolerancia = Decimal("0.01") * Decimal(str(cuotas))
 
-        if diferencia > Decimal("0.01"):
+        if diferencia > tolerancia:
             errores["honorarios.importe_cuota"] = (
                 "La cantidad de cuotas por el importe de cada cuota "
                 "no coincide con el importe total."
