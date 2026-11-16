@@ -165,7 +165,7 @@ def _normalizar_valor(valor, clave):
     if clave in CLAVES_NUMERICAS:
         return _numero_como_texto(_interpretar_numero(valor))
 
-    return valor
+    return str(valor)
 
 
 def _normalizar_para_comparar(valor):
@@ -482,7 +482,7 @@ def extraer_datos(mensaje, contexto=""):
 
             valor = _normalizar_valor(valor, clave)
 
-            if str(valor).lower() in invalidos:
+            if valor.lower() in invalidos:
                 continue
 
             resultado.setdefault(seccion, {})[clave] = valor

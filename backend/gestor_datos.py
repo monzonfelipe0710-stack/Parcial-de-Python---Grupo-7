@@ -33,6 +33,9 @@ def actualizar_datos(datos_actuales, nuevos_datos):
 
             # Guardar el dato si tiene contenido
             if valor is not None and str(valor).strip() != "":
+                if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+                    valor = str(valor)
+
                 valor_actual = datos_actuales[seccion].get(clave)
                 if valor_actual is None or str(valor_actual).strip() == "":
                     datos_actuales[seccion][clave] = valor

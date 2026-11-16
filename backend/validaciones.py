@@ -17,6 +17,12 @@ def _esta_vacio(valor):
     return valor is None or str(valor).strip() == ""
 
 
+def _tiene_tipo_valido(valor):
+    if isinstance(valor, bool):
+        return False
+    return isinstance(valor, (str, int, float))
+
+
 def detectar_campos_faltantes(datos):
     """Identifica los campos obligatorios que todavía están vacíos."""
 
@@ -146,10 +152,19 @@ def validar_contrato(datos):
         ("honorarios", "importe_cuota"): validar_importe,
     }
 
+    for seccion, campos in CAMPOS_CONTRATO.items():
+        datos_seccion = _datos_seccion(datos, seccion)
+
+        for clave in campos:
+            valor = datos_seccion.get(clave)
+
+            if not _esta_vacio(valor) and not _tiene_tipo_valido(valor):
+                errores[f"{seccion}.{clave}"] = "Ingrese un valor de texto válido."
+
     for (seccion, clave), validador in validadores.items():
         valor = _datos_seccion(datos, seccion).get(clave)
 
-        if _esta_vacio(valor):
+        if _esta_vacio(valor) or f"{seccion}.{clave}" in errores:
             continue
 
         mensaje = validador(valor)
