@@ -1,6 +1,11 @@
 
 # Datos necesarios para completar el contrato
 
+MODELO_CONTRATO = {
+    "codigo": "CONT-001",
+    "nombre": "Contrato de Prestación de Servicios Profesionales",
+}
+
 CAMPOS_CONTRATO = {
     "contrato": {
         "ciudad": "Ciudad de celebración",

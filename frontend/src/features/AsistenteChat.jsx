@@ -38,7 +38,7 @@ function BurbujaMensaje({ mensaje }) {
   )
 }
 
-export function AsistenteChat({ datos }) {
+export function AsistenteChat({ datos, alActualizarDatos }) {
   const [mensajes, setMensajes] = useState([MENSAJE_INICIAL])
   const [texto, setTexto] = useState('')
   const [escribiendo, setEscribiendo] = useState(false)
@@ -68,6 +68,9 @@ export function AsistenteChat({ datos }) {
         historial: ordenarParaApi(historial),
         datos
       })
+      if (resultado.datos && alActualizarDatos) {
+        alActualizarDatos(resultado.datos)
+      }
       setMensajes((anteriores) => [
         ...anteriores,
         { id: siguienteId(), rol: 'asistente', texto: resultado.respuesta }
@@ -115,8 +118,7 @@ export function AsistenteChat({ datos }) {
       idTitulo="titulo-asistente"
     >
       <Aviso tipo="info">
-        Asistente en modo simulado: no interpreta el texto todavía; complete los datos en el
-        formulario.
+        El asistente analiza sus mensajes y completa los datos reconocidos en el formulario.
       </Aviso>
 
       <div

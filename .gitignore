@@ -2,3 +2,8 @@ node_modules
 dist
 .env.local
 *.log
+/backend/contratos.sqlite3*
+/documentos_generados/*.docx
+/documentos_generados/*.pdf
+__pycache__/
+*.pyc

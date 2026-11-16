@@ -1,0 +1,50 @@
+# Decisiones tomadas (Proyecto: Automatización de documentación contractual)
+
+Este archivo resume qué se implementó y **por qué se eligió así**, de forma simple, para usarlo como contexto y que se pueda explicar fácilmente.
+
+## 1. Objetivo y alcance
+- **Qué pide el TP:** que un empleado cargue datos (con ayuda de IA), el sistema controle/valide la información y genere un contrato usando la **plantilla aprobada**, quedando pendiente de revisión profesional.
+- **Decisión:** priorizar una solución **simple que cumpla** todos los pasos (datos → validación → borrador/generación → revisión → exportación) antes que agregar complejidad.
+
+## 2. Backend (FastAPI) y estructura
+- **Qué se hizo:** API con FastAPI en `backend/main.py` con endpoints para modelo, borradores, generar/enviar a revisión, listar/detalle, asistente, aprobar y exportar.
+- **Por qué:** FastAPI es liviano, claro y se integra fácil con el frontend; define rutas y validación básica de entrada sin mucho código.
+- **Por qué no otro:** no se usó un framework más pesado ni microservicios porque el alcance es un TP y se busca sencillez.
+
+## 3. Almacenamiento (SQLite)
+- **Qué se hizo:** `backend/almacen.py` guarda contratos en SQLite (`contratos.sqlite3`) con funciones para crear, guardar, obtener y listar (incluye `creadoPor`, fechas, estado, datos, revisión e historial).
+- **Por qué:** SQLite no requiere servidor, es persistente y con pocas líneas cumple lo que la API y las pruebas necesitan.
+- **Por qué no otro:** no se usó base en memoria (se perderían datos) ni un esquema de muchas tablas/ORM complejo, para mantener el código corto y fácil de explicar.
+
+## 4. Modelo de datos y acumulación
+- **Qué se hizo:** `campos_contrato.py` define los campos del contrato; `gestor_datos.py` crea la estructura vacía y acumula datos parciales sin pisar lo ya cargado (solo secciones/campos permitidos).
+- **Por qué:** tener una estructura única evita errores entre IA, validaciones y generación; permite completar el contrato en varios mensajes.
+
+## 5. IA conversacional (Ollama + Llama 3.2:3B)
+- **Qué se hizo:** `backend/ia.py` extrae datos del mensaje a JSON con la estructura de `CAMPOS_CONTRATO`, filtra valores no respaldados por el mensaje y consulta al modelo con historial/contexto e instrucciones de no inventar ni modificar cláusulas. El endpoint del asistente combina extracción + acumulación + faltantes/errores.
+- **Por qué:** se aprovecha el modelo local existente (como pide la consigna) y **Python controla** qué datos se aceptan, los faltantes y las validaciones; así se reduce el riesgo de inventar información.
+- **Por qué no otro:** no se entrenó ni se cambió de modelo (pedido explícito); no se confió solo en el texto libre del modelo para guardar datos, por eso hay extracción estructurada y filtros.
+
+## 6. Validaciones
+- **Qué se hizo:** `validaciones.py` detecta campos faltantes y valida formatos/coherencia (DNI/CUIT, fechas, importes, cuotas, fecha fin > inicio, total vs cuotas) separando faltantes de errores.
+- **Por qué:** garantiza que el contrato se genere con datos completos y coherentes, y permite pedir correcciones claras al usuario.
+
+## 7. Generación de documentos (DOCX y PDF)
+- **Qué se hizo:** `documentos.py` genera el `.docx` **a partir de la plantilla** en `plantillas/`, reemplazando los datos de ejemplo por los datos reales y conservando las cláusulas fijas. Para PDF se genera un archivo simple desde el texto del DOCX generado (usando `reportlab`).
+- **Por qué (DOCX):** usar la plantilla aprobada asegura que las cláusulas no se modifiquen y mantiene el formato esperado.
+- **Por qué (PDF simple):** cumple la exportación pedida con poco código y sin depender de conversiones complejas de Word; prioriza simplicidad.
+- **Por qué no otro:** no se armó el contrato “desde cero” en código para no alterar cláusulas ni el formato legal.
+
+## 8. Revisión y permisos
+- **Qué se hizo:** solo contratos en borrador se editan/generan; al generar pasan a “pendiente de revisión”; solo perfil profesional puede aprobar; solo aprobados se exportan.
+- **Por qué:** respeta el flujo del enunciado: generación automática pero control y aprobación humana.
+
+## 9. Pruebas y ajustes menores
+- **Qué se hizo:** se ejecutan los tests de `backend/tests/test_backend.py` (extracción/grounding, acumulación, validaciones, SQLite, generación DOCX, contexto IA, asistente). Se completó el almacén para cumplir lo que usan la API/tests y se ajustó la limpieza del test de SQLite en Windows.
+- **Por qué:** verificar de forma rápida que las partes principales funcionan sin agregar una suite compleja.
+
+## 10. Cómo ejecutarlo (resumen)
+- **Requisitos:** `pip install -r requirements.txt` (fastapi, uvicorn, python-docx, requests, reportlab).
+- **Backend:** `uvicorn backend.main:app --reload` (lee `plantillas/`, guarda en `documentos_generados/`).
+- **IA:** requiere Ollama local con `llama3.2:3b` en `http://localhost:11434`. Sin Ollama funcionan CRUD, validaciones y generación/exportación DOCX/PDF (no el chat).
+- **Exportación:** DOCX y PDF disponibles para contratos aprobados.

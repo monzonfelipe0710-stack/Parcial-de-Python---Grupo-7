@@ -2,21 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Enlace } from '../../lib/router.jsx'
 import { usePerfil } from '../../lib/perfil.jsx'
 import { PERFILES } from '../../config/campos.js'
-import { modoSimulacion } from '../../api/contratosApi.js'
 import { EstadoBackend } from './EstadoBackend.jsx'
-import { Aviso } from '../ui/Aviso.jsx'
 
 const ENLACES = [
   { a: '/contratos', etiqueta: 'Contratos', activo: (camino) => camino === '/contratos' || (camino.startsWith('/contratos/') && camino !== '/contratos/nuevo') },
   { a: '/contratos/nuevo', etiqueta: 'Nuevo contrato', activo: (camino) => camino === '/contratos/nuevo' },
   { a: '/revision', etiqueta: 'Revisión profesional', activo: (camino) => camino === '/revision' }
 ]
-
-const TEXTOS_SIMULACION = {
-  error: 'Los datos simulados responden con error.',
-  vacio: 'Los datos simulados responden sin resultados.',
-  lento: 'Los datos simulados responden con demora.'
-}
 
 function Navegacion({ camino, alNavegar }) {
   return (
@@ -83,7 +75,6 @@ export function AppLayout({ camino, children }) {
   const [menuAbierto, setMenuAbierto] = useState(false)
   const principal = useRef(null)
   const caminoAnterior = useRef(camino)
-  const simulacion = modoSimulacion()
 
   useEffect(() => {
     if (caminoAnterior.current === camino) {
@@ -138,7 +129,7 @@ export function AppLayout({ camino, children }) {
           <SelectorPerfil />
           <EstadoBackend />
           <p className="text-xs text-papel-300">
-            Los contratos y el asistente funcionan con datos simulados hasta que exista la API.
+            Los contratos y el asistente utilizan el backend local.
           </p>
         </div>
       </aside>
@@ -150,11 +141,6 @@ export function AppLayout({ camino, children }) {
           tabIndex={-1}
           className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-8 lg:py-10"
         >
-          {simulacion && TEXTOS_SIMULACION[simulacion] ? (
-            <Aviso tipo="info" titulo="Modo de prueba activo" className="mb-6">
-              {TEXTOS_SIMULACION[simulacion]}
-            </Aviso>
-          ) : null}
           {children}
         </main>
         <footer className="border-t border-papel-300 bg-papel-100 px-4 py-4 text-sm text-texto-suave sm:px-8">

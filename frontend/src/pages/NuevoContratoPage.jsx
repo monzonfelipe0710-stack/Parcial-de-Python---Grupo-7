@@ -235,7 +235,7 @@ function EditorContrato({ contratoInicial }) {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] xl:items-start">
         <div className="space-y-6">
-          <AsistenteChat datos={datos} />
+          <AsistenteChat datos={datos} alActualizarDatos={setDatos} />
           <PanelFaltantes datos={datos} />
         </div>
         <div className="space-y-6">

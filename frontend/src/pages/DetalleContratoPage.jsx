@@ -102,7 +102,7 @@ function BloqueRevision({ contrato, alActualizar, perfil, setResultado }) {
     setAprobando(true)
     setErrorAprobacion('')
     try {
-      const actualizado = await aprobarContrato(contrato.id)
+      const actualizado = await aprobarContrato(contrato.id, perfil)
       setConfirmando(false)
       setResultado({
         enfocar: true,

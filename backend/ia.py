@@ -1,11 +1,124 @@
 
 import requests
 import json
+import re
+import unicodedata
+from datetime import date
 
 from backend.campos_contrato import CAMPOS_CONTRATO
 
 
 URL_OLLAMA = "http://localhost:11434/api/chat"
+MESES = (
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+)
+
+
+def _normalizar_para_comparar(valor):
+    normalizado = unicodedata.normalize("NFD", str(valor).casefold())
+    return "".join(
+        caracter
+        for caracter in normalizado
+        if not unicodedata.combining(caracter) and caracter.isalnum()
+    )
+
+
+def _valor_respaldado_por_mensaje(valor, mensaje, clave):
+    if isinstance(valor, bool) or not isinstance(valor, (str, int, float)):
+        return False
+
+    valor_texto = str(valor).strip()
+    mensaje_normalizado = _normalizar_para_comparar(mensaje)
+
+    if clave in ("documento", "documento_representante"):
+        if (
+            clave == "documento_representante"
+            and "representante" not in mensaje_normalizado
+        ):
+            return False
+        digitos_valor = "".join(caracter for caracter in valor_texto if caracter.isdigit())
+        digitos_mensaje = "".join(caracter for caracter in mensaje if caracter.isdigit())
+        return bool(digitos_valor) and digitos_valor in digitos_mensaje
+
+    if clave == "domicilio" and not any(
+        referencia in mensaje_normalizado for referencia in ("domicilio", "direccion")
+    ):
+        return False
+
+    if clave == "ciudad":
+        contexto_ciudad = any(
+            referencia in mensaje_normalizado
+            for referencia in (
+                "ciudad",
+                "celebracion",
+                "firmamos",
+                "firmara",
+                "contratoseraen",
+                "contratosecelebra",
+            )
+        )
+        contexto_domicilio = any(
+            referencia in mensaje_normalizado
+            for referencia in ("domicilio", "direccion")
+        )
+        contexto_contrato = any(
+            referencia in mensaje_normalizado
+            for referencia in ("celebracion", "firmamos", "firmara")
+        )
+        if not contexto_ciudad or (contexto_domicilio and not contexto_contrato):
+            return False
+
+    valor_normalizado = _normalizar_para_comparar(valor_texto)
+    if valor_normalizado and valor_normalizado in mensaje_normalizado:
+        return True
+
+    if clave in ("fecha_celebracion", "fecha_inicio", "fecha_fin"):
+        try:
+            fecha = date.fromisoformat(valor_texto)
+        except ValueError:
+            return False
+        fecha_en_espanol = (
+            f"{fecha.day} de {MESES[fecha.month - 1]} de {fecha.year}"
+        )
+        return _normalizar_para_comparar(fecha_en_espanol) in mensaje_normalizado
+
+    return False
+
+
+def _domicilios_explicitos(mensaje):
+    domicilios = {}
+    expresiones = (
+        (
+            "parte_contratante",
+            r"\bdomicilio\s+(?:de\s+)?(?:la\s+)?parte\s+contratante"
+            r"\s*(?:es|:|=)\s*(?P<valor>[^;\n]+)",
+        ),
+        (
+            "parte_prestadora",
+            r"\bdomicilio\s+(?:de\s+)?(?:la\s+)?parte\s+prestadora"
+            r"\s*(?:es|:|=)\s*(?P<valor>[^;\n]+)",
+        ),
+    )
+
+    for seccion, expresion in expresiones:
+        coincidencia = re.search(expresion, mensaje, flags=re.IGNORECASE)
+        if coincidencia:
+            valor = coincidencia.group("valor").strip().rstrip(".")
+            if valor:
+                domicilios[seccion] = valor
+
+    return domicilios
 
 
 # Instrucciones generales del asistente
@@ -25,21 +138,44 @@ Reglas:
 - La plantilla es la única fuente autorizada de cláusulas.
 - El expediente solo aporta información contextual.
 - No copies datos de ejemplo de los documentos a contratos nuevos.
+- No reutilices valores de ejemplo ni presentes datos que no estén en la conversación.
 - Solicitá únicamente los campos definidos en CAMPOS_CONTRATO.
 - No solicites información que ya está establecida en la plantilla.
+- Para DNI y CUIT, devolvé solamente el número, sin la etiqueta del documento.
 
 Respondé siempre en español y de manera clara.
 """
 
 
 # Función para consultar al asistente
-def consultar_ia(mensaje, historial=None, documentos=None):
+def consultar_ia(
+    mensaje,
+    historial=None,
+    documentos=None,
+    campos_faltantes=None,
+    errores_validacion=None,
+):
 
     instrucciones = INSTRUCCIONES
 
     if documentos:
         instrucciones += "\nPLANTILLA:\n" + documentos["plantilla"]
         instrucciones += "\nEXPEDIENTE:\n" + documentos["expediente"]
+
+    if campos_faltantes:
+        instrucciones += (
+            "\nDATOS OBLIGATORIOS PENDIENTES:\n"
+            + "\n".join(f"- {campo}" for campo in campos_faltantes)
+            + "\nPedí al empleado que complete esos datos, de forma natural. "
+            "No afirmes que el contrato está listo."
+        )
+
+    if errores_validacion:
+        instrucciones += (
+            "\nDATOS QUE DEBEN CORREGIRSE:\n"
+            + "\n".join(f"- {error}" for error in errores_validacion)
+            + "\nExplicá qué dato debe corregirse sin proponer un valor inventado."
+        )
 
     mensajes = [
         {"role": "system", "content": instrucciones}
@@ -135,9 +271,33 @@ def extraer_datos(mensaje):
             if isinstance(valor, str):
                 valor = valor.strip()
 
+            if clave in ("documento", "documento_representante") and isinstance(
+                valor, str
+            ):
+                valor = re.sub(
+                    r"^(?:DNI|CUIT|CUIL)\b\s*",
+                    "",
+                    valor,
+                    count=1,
+                    flags=re.IGNORECASE,
+                )
+                valor = re.sub(
+                    r"^N[\W_]*(?:RO)?[\W_]*",
+                    "",
+                    valor,
+                    count=1,
+                    flags=re.IGNORECASE,
+                ).strip()
+
+            if not _valor_respaldado_por_mensaje(valor, mensaje, clave):
+                continue
+
             if str(valor).lower() in invalidos:
                 continue
 
             resultado.setdefault(seccion, {})[clave] = valor
+
+    for seccion, campos in _domicilios_explicitos(mensaje).items():
+        resultado.setdefault(seccion, {})["domicilio"] = campos
 
     return resultado
