@@ -48,3 +48,15 @@ Este archivo resume qué se implementó y **por qué se eligió así**, de forma
 - **Backend:** `uvicorn backend.main:app --reload` (lee `plantillas/`, guarda en `documentos_generados/`).
 - **IA:** requiere Ollama local con `llama3.2:3b` en `http://localhost:11434`. Sin Ollama funcionan CRUD, validaciones y generación/exportación DOCX/PDF (no el chat).
 - **Exportación:** DOCX y PDF disponibles para contratos aprobados.
+
+## 11. Refuerzo de la supervisión de Python sobre la IA
+- **Qué se hizo:** se separó con más claridad el rol de cada parte. La IA (Llama 3.2:3B) **comprende y propone** datos; Python **decide** si esos datos cumplen las reglas y recién ahí los incorpora al contrato.
+  - `validaciones.py`: nueva función `supervisar_datos_propuestos()` que, antes de guardar, comprueba que la sección y el campo existan en `CAMPOS_CONTRATO`, valida cada valor con `validar_campo()` y decide si se acepta. No pisa un dato válido ya recopilado, pero **sí permite corregir** un dato cargado que era inválido. Los datos rechazados se informan para volver a preguntarlos.
+  - `validaciones.py`: `validar_campo()` centraliza las validaciones por campo (DNI/CUIT, fechas, importes, cuotas, texto) y `validar_contrato()` ahora la reutiliza. Se agregó coherencia entre fecha de celebración y fecha de inicio.
+  - `gestor_datos.actualizar_datos()`: parámetro `sobrescribir` (por defecto `False`), que solo se usa con datos ya supervisados por Python.
+  - `ia.py`: `extraer_datos()` interpreta JSON aunque venga con texto o cercas de código; si no puede, lanza error controlado y **no inventa datos**. `consultar_ia()` recibe `datos_actuales` para recordar lo ya cargado y no volver a pedirlo.
+  - `main.py`: el endpoint del asistente aplica la supervisión y, si el modelo devuelve JSON inválido, continúa la conversación dejando todo pendiente (sin datos ficticios).
+  - `documentos.py`: barrera final que impide generar el DOCX si hay datos faltantes o inválidos (defensa extra además del control de `main.py`). Se eliminó una definición duplicada de `generar_documento_pdf`.
+- **Por qué:** la regla fundamental es que la IA propone y Python controla. Así se evita que datos inventados, inválidos o de ejemplo terminen en el contrato, sin cambiar el modelo ni la arquitectura.
+- **Revisión profesional:** se mantiene igual. Un contrato generado queda `pendiente_revision` y solo un perfil profesional puede aprobarlo; ni la IA ni las validaciones lo aprueban automáticamente.
+

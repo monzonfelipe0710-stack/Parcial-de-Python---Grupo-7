@@ -17,7 +17,7 @@ def crear_datos_contrato():
 
 
 # Actualizar los datos proporcionados por el empleado
-def actualizar_datos(datos_actuales, nuevos_datos):
+def actualizar_datos(datos_actuales, nuevos_datos, sobrescribir=False):
 
     for seccion, campos in nuevos_datos.items():
 
@@ -37,7 +37,13 @@ def actualizar_datos(datos_actuales, nuevos_datos):
                     valor = str(valor)
 
                 valor_actual = datos_actuales[seccion].get(clave)
-                if valor_actual is None or str(valor_actual).strip() == "":
+                # Por defecto no se pisa lo ya cargado; "sobrescribir" se usa
+                # solo con datos que Python ya supervisó y aprobó.
+                if (
+                    sobrescribir
+                    or valor_actual is None
+                    or str(valor_actual).strip() == ""
+                ):
                     datos_actuales[seccion][clave] = valor
 
     return datos_actuales

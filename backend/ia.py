@@ -325,6 +325,28 @@ Respondé siempre en español y de manera clara.
 """
 
 
+def _datos_cargados_para_ia(datos):
+    """Resume los datos ya recopilados para que el modelo no vuelva a pedirlos."""
+
+    if not isinstance(datos, dict):
+        return []
+
+    lineas = []
+
+    for seccion, campos in CAMPOS_CONTRATO.items():
+        valores = datos.get(seccion)
+        if not isinstance(valores, dict):
+            continue
+
+        for clave in campos:
+            valor = valores.get(clave)
+            if valor is None or str(valor).strip() == "":
+                continue
+            lineas.append(f"- {seccion}.{clave}: {valor}")
+
+    return lineas
+
+
 # Función para consultar al asistente
 def consultar_ia(
     mensaje,
@@ -332,6 +354,7 @@ def consultar_ia(
     documentos=None,
     campos_faltantes=None,
     errores_validacion=None,
+    datos_actuales=None,
 ):
 
     instrucciones = INSTRUCCIONES
@@ -339,6 +362,13 @@ def consultar_ia(
     if documentos:
         instrucciones += "\nPLANTILLA:\n" + documentos["plantilla"]
         instrucciones += "\nEXPEDIENTE:\n" + documentos["expediente"]
+
+    cargados = _datos_cargados_para_ia(datos_actuales)
+    if cargados:
+        instrucciones += (
+            "\nDATOS YA RECOPILADOS (son correctos, no los vuelvas a pedir):\n"
+            + "\n".join(cargados)
+        )
 
     if campos_faltantes:
         instrucciones += (
@@ -378,6 +408,40 @@ def consultar_ia(
 
 
 # Función para extraer datos del mensaje
+def _parsear_json(contenido):
+    """Interpreta la respuesta del modelo aunque venga con texto o cercas ```.
+
+    Devuelve un diccionario o None si no se puede interpretar como objeto JSON.
+    """
+
+    if isinstance(contenido, dict):
+        return contenido
+
+    if not isinstance(contenido, str):
+        return None
+
+    texto = contenido.strip()
+    texto = re.sub(r"^```(?:json)?", "", texto, flags=re.IGNORECASE).strip()
+    texto = re.sub(r"```$", "", texto).strip()
+
+    candidatos = [texto]
+
+    inicio = texto.find("{")
+    fin = texto.rfind("}")
+    if inicio != -1 and fin > inicio:
+        candidatos.append(texto[inicio : fin + 1])
+
+    for candidato in candidatos:
+        try:
+            datos = json.loads(candidato)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(datos, dict):
+            return datos
+
+    return None
+
+
 def extraer_datos(mensaje, contexto=""):
 
     instrucciones = f"""
@@ -420,13 +484,9 @@ def extraer_datos(mensaje, contexto=""):
 
     contenido = respuesta.json()["message"]["content"]
 
-    try:
-        datos = json.loads(contenido)
-    except (json.JSONDecodeError, TypeError) as error:
-        raise ValueError("La IA no devolvió un JSON válido.") from error
-
-    if not isinstance(datos, dict):
-        raise ValueError("La respuesta debe ser un objeto JSON.")
+    datos = _parsear_json(contenido)
+    if datos is None:
+        raise ValueError("La IA no devolvió un JSON válido.")
 
     # Valores que Python debe descartar
     invalidos = {

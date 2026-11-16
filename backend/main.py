@@ -218,15 +218,24 @@ def conversar_con_asistente(solicitud: MensajeAsistenteRequest):
 
     try:
         extraidos = ia.extraer_datos(mensaje, contexto=pregunta_previa)
-    except (requests.RequestException, ValueError) as error:
+    except ValueError:
+        # JSON inválido o incompleto: no se inventa nada, se deja todo pendiente
+        # y el asistente vuelve a pedir los datos que falten.
+        extraidos = {}
+    except requests.RequestException as error:
         raise HTTPException(
             status_code=502,
             detail=f"No se pudieron extraer los datos con Ollama: {error}",
         ) from error
 
-    gestor_datos.actualizar_datos(datos, extraidos)
+    # Python decide qué propuestas de la IA cumplen las reglas y pueden guardarse.
+    aceptados, rechazados = validaciones.supervisar_datos_propuestos(datos, extraidos)
+    gestor_datos.actualizar_datos(datos, aceptados, sobrescribir=True)
+
     faltantes = validaciones.detectar_campos_faltantes(datos)
     errores = validaciones.validar_contrato(datos)
+    for clave, motivo in rechazados.items():
+        errores.setdefault(clave, motivo)
     campos_pendientes = [
         f"{seccion}: {nombre}"
         for seccion, nombres in faltantes.items()
@@ -244,6 +253,7 @@ def conversar_con_asistente(solicitud: MensajeAsistenteRequest):
             documentos=documentos.cargar_documentos_para_ia(),
             campos_faltantes=campos_pendientes,
             errores_validacion=problemas,
+            datos_actuales=datos,
         )
     except (requests.RequestException, KeyError, OSError) as error:
         raise HTTPException(

@@ -138,41 +138,112 @@ def validar_cantidad_cuotas(valor):
     return None
 
 
+def validar_texto(valor):
+    """Comprueba que un campo de texto libre tenga contenido útil."""
+
+    texto = str(valor).strip()
+
+    if not texto:
+        return "El valor no puede estar vacío."
+
+    if not any(caracter.isalnum() for caracter in texto):
+        return "El valor no parece un dato válido."
+
+    return None
+
+
+# Validadores específicos por campo (el resto son texto libre)
+VALIDADORES_POR_CAMPO = {
+    ("contrato", "fecha_celebracion"): validar_fecha,
+    ("parte_contratante", "documento"): validar_documento,
+    ("parte_contratante", "documento_representante"):
+        lambda valor: validar_documento(valor, permitir_cuit=False),
+    ("parte_prestadora", "documento"): validar_documento,
+    ("plazo", "fecha_inicio"): validar_fecha,
+    ("plazo", "fecha_fin"): validar_fecha,
+    ("honorarios", "importe_total"): validar_importe,
+    ("honorarios", "cantidad_cuotas"): validar_cantidad_cuotas,
+    ("honorarios", "importe_cuota"): validar_importe,
+}
+
+
+def validar_campo(seccion, clave, valor):
+    """Valida un único campo. Devuelve el error o None si es correcto.
+
+    Un campo vacío no es un error: se informa por separado como faltante.
+    """
+
+    if seccion not in CAMPOS_CONTRATO or clave not in CAMPOS_CONTRATO[seccion]:
+        return "El campo no pertenece al contrato."
+
+    if _esta_vacio(valor):
+        return None
+
+    if not _tiene_tipo_valido(valor):
+        return "Ingrese un valor de texto válido."
+
+    validador = VALIDADORES_POR_CAMPO.get((seccion, clave), validar_texto)
+    return validador(valor)
+
+
+def supervisar_datos_propuestos(datos_actuales, propuestos):
+    """Filtra los datos que propone la IA antes de incorporarlos al contrato.
+
+    Devuelve una tupla (aceptados, rechazados):
+    - aceptados: datos que cumplen las reglas y pueden guardarse.
+    - rechazados: campo -> motivo, para volver a preguntarle al empleado.
+
+    Reglas de Python:
+    - La sección y el campo deben existir en CAMPOS_CONTRATO.
+    - El valor debe pasar las validaciones del sistema.
+    - No se reemplaza un dato válido ya recopilado.
+    - Sí se permite corregir un dato que estaba cargado pero era inválido.
+    """
+
+    aceptados = {}
+    rechazados = {}
+
+    if not isinstance(propuestos, Mapping):
+        return aceptados, rechazados
+
+    for seccion, campos in propuestos.items():
+        if seccion not in CAMPOS_CONTRATO or not isinstance(campos, Mapping):
+            continue
+
+        for clave, valor in campos.items():
+            if clave not in CAMPOS_CONTRATO[seccion]:
+                continue
+
+            error = validar_campo(seccion, clave, valor)
+            if error:
+                rechazados[f"{seccion}.{clave}"] = error
+                continue
+
+            actual = _datos_seccion(datos_actuales, seccion).get(clave)
+            if (
+                not _esta_vacio(actual)
+                and validar_campo(seccion, clave, actual) is None
+            ):
+                # Ya hay un dato válido: no se pisa con una nueva propuesta.
+                continue
+
+            aceptados.setdefault(seccion, {})[clave] = valor
+
+    return aceptados, rechazados
+
+
 def validar_contrato(datos):
     """Comprueba formatos y coherencia sin confundir faltantes con errores."""
 
     errores = {}
-    validadores = {
-        ("contrato", "fecha_celebracion"): validar_fecha,
-        ("parte_contratante", "documento"): validar_documento,
-        ("parte_contratante", "documento_representante"):
-            lambda valor: validar_documento(valor, permitir_cuit=False),
-        ("parte_prestadora", "documento"): validar_documento,
-        ("plazo", "fecha_inicio"): validar_fecha,
-        ("plazo", "fecha_fin"): validar_fecha,
-        ("honorarios", "importe_total"): validar_importe,
-        ("honorarios", "cantidad_cuotas"): validar_cantidad_cuotas,
-        ("honorarios", "importe_cuota"): validar_importe,
-    }
 
     for seccion, campos in CAMPOS_CONTRATO.items():
         datos_seccion = _datos_seccion(datos, seccion)
 
         for clave in campos:
-            valor = datos_seccion.get(clave)
-
-            if not _esta_vacio(valor) and not _tiene_tipo_valido(valor):
-                errores[f"{seccion}.{clave}"] = "Ingrese un valor de texto válido."
-
-    for (seccion, clave), validador in validadores.items():
-        valor = _datos_seccion(datos, seccion).get(clave)
-
-        if _esta_vacio(valor) or f"{seccion}.{clave}" in errores:
-            continue
-
-        mensaje = validador(valor)
-        if mensaje:
-            errores[f"{seccion}.{clave}"] = mensaje
+            mensaje = validar_campo(seccion, clave, datos_seccion.get(clave))
+            if mensaje:
+                errores[f"{seccion}.{clave}"] = mensaje
 
     datos_plazo = _datos_seccion(datos, "plazo")
     inicio = datos_plazo.get("fecha_inicio")
@@ -187,6 +258,19 @@ def validar_contrato(datos):
             errores["plazo.fecha_fin"] = (
                 "La fecha de finalización debe ser posterior "
                 "a la fecha de inicio."
+            )
+
+    celebracion = _datos_seccion(datos, "contrato").get("fecha_celebracion")
+
+    if not _esta_vacio(celebracion) and not _esta_vacio(inicio):
+        if (
+            validar_fecha(celebracion) is None
+            and validar_fecha(inicio) is None
+            and date.fromisoformat(str(inicio)) < date.fromisoformat(str(celebracion))
+        ):
+            errores["plazo.fecha_inicio"] = (
+                "La fecha de inicio no puede ser anterior "
+                "a la fecha de celebración del contrato."
             )
 
     honorarios = _datos_seccion(datos, "honorarios")

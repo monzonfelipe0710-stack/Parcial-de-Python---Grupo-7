@@ -6,6 +6,8 @@ from pathlib import Path
 
 from docx import Document
 
+from backend import validaciones
+
 
 RAIZ_PROYECTO = Path(__file__).resolve().parent.parent
 RUTA_PLANTILLA = RAIZ_PROYECTO / "plantillas" / "contrato_ejemplo_CONT-001(1).docx"
@@ -192,6 +194,16 @@ def _formatear_importe(valor):
 
 def generar_documento_contrato(contrato):
     datos = contrato["datos"]
+
+    # Barrera final: nunca se genera el documento con datos faltantes o inválidos,
+    # así no se cuelan datos de ejemplo de la plantilla.
+    faltantes = validaciones.detectar_campos_faltantes(datos)
+    errores = validaciones.validar_contrato(datos)
+    if faltantes or errores:
+        raise ValueError(
+            "No se puede generar el contrato: hay datos faltantes o inválidos."
+        )
+
     documento = Document(RUTA_PLANTILLA)
 
     parrafo_lugar = _buscar_parrafo(documento, "En la ciudad de ")
@@ -318,33 +330,6 @@ def generar_documento_contrato(contrato):
     ruta_salida = DIRECTORIO_GENERADOS / f"{contrato['id']}.docx"
     documento.save(ruta_salida)
     return ruta_salida
-
-
-def generar_documento_pdf(contrato):
-    from reportlab.lib.pagesizes import A4
-    from reportlab.pdfgen import canvas
-
-    ruta_docx = DIRECTORIO_GENERADOS / f"{contrato['id']}.docx"
-    ruta_pdf = DIRECTORIO_GENERADOS / f"{contrato['id']}.pdf"
-    documento = Document(ruta_docx)
-
-    lienzo = canvas.Canvas(str(ruta_pdf), pagesize=A4)
-    _, alto = A4
-    texto = lienzo.beginText(40, alto - 40)
-    texto.setFont("Helvetica", 10)
-
-    for parrafo in documento.paragraphs:
-        linea = parrafo.text or ""
-        if texto.getY() < 40:
-            lienzo.drawText(texto)
-            lienzo.showPage()
-            texto = lienzo.beginText(40, alto - 40)
-            texto.setFont("Helvetica", 10)
-        texto.textLine(linea)
-
-    lienzo.drawText(texto)
-    lienzo.save()
-    return ruta_pdf
 
 
 def generar_documento_pdf(contrato):
