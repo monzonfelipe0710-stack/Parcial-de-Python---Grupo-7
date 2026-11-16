@@ -5,7 +5,7 @@ import { EstadoVacio } from '../components/ui/EstadoVacio.jsx'
 import { EstadoError } from '../components/ui/EstadoError.jsx'
 import TablaContratos from '../features/TablaContratos.jsx'
 import { listarContratos } from '../api/contratosApi.js'
-import { usePerfil } from '../lib/perfil.jsx'
+import { useSesion } from '../lib/sesion.jsx'
 import { useCarga } from '../lib/useCarga.js'
 
 function ListadoPendientes() {
@@ -48,8 +48,8 @@ function ListadoPendientes() {
 }
 
 export default function RevisionPage() {
-  const { perfil } = usePerfil()
-  const esProfesional = perfil === 'profesional'
+  const { usuario } = useSesion()
+  const esProfesional = usuario?.rol === 'profesional'
 
   return (
     <div>
@@ -61,8 +61,8 @@ export default function RevisionPage() {
         <ListadoPendientes />
       ) : (
         <Aviso tipo="info" titulo="Sección para el profesional autorizado">
-          Esta sección corresponde al profesional autorizado. Puede cambiar el perfil en el menú lateral
-          (función simulada) para ver los contratos pendientes de revisión.
+          Esta sección corresponde al profesional autorizado. Su cuenta actual no tiene ese rol, por lo que
+          no puede ver ni aprobar los contratos pendientes de revisión.
         </Aviso>
       )}
     </div>

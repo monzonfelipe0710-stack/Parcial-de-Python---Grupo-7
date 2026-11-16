@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { PerfilProvider } from './lib/perfil.jsx'
+import { SesionProvider, useSesion } from './lib/sesion.jsx'
 import { coincidir, useRuta } from './lib/router.jsx'
 import { AppLayout } from './components/layout/AppLayout.jsx'
 import ContratosPage from './pages/ContratosPage.jsx'
@@ -7,6 +7,7 @@ import NuevoContratoPage from './pages/NuevoContratoPage.jsx'
 import DetalleContratoPage from './pages/DetalleContratoPage.jsx'
 import RevisionPage from './pages/RevisionPage.jsx'
 import NoEncontradaPage from './pages/NoEncontradaPage.jsx'
+import AccesoPage from './pages/AccesoPage.jsx'
 
 const RUTAS = [
   { patron: '/contratos', titulo: 'Contratos', pagina: ContratosPage },
@@ -27,12 +28,17 @@ function resolverRuta(camino) {
 
 function Aplicacion() {
   const { camino, consulta } = useRuta()
+  const { usuario } = useSesion()
   const ruta = resolverRuta(camino)
   const Pagina = ruta.pagina
 
   useEffect(() => {
     document.title = `${ruta.titulo} | Acosta & Asociados`
   }, [ruta.titulo])
+
+  if (!usuario) {
+    return <AccesoPage />
+  }
 
   return (
     <AppLayout camino={camino}>
@@ -43,8 +49,8 @@ function Aplicacion() {
 
 export default function App() {
   return (
-    <PerfilProvider>
+    <SesionProvider>
       <Aplicacion />
-    </PerfilProvider>
+    </SesionProvider>
   )
 }

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Enlace } from '../../lib/router.jsx'
-import { usePerfil } from '../../lib/perfil.jsx'
+import { useSesion } from '../../lib/sesion.jsx'
 import { PERFILES } from '../../config/campos.js'
+import { Boton } from '../ui/Boton.jsx'
 import { EstadoBackend } from './EstadoBackend.jsx'
 
 const ENLACES = [
@@ -38,26 +39,21 @@ function Navegacion({ camino, alNavegar }) {
   )
 }
 
-function SelectorPerfil() {
-  const { perfil, cambiarPerfil } = usePerfil()
+function PanelUsuario() {
+  const { usuario, cerrarSesion } = useSesion()
+  if (!usuario) {
+    return null
+  }
+  const etiquetaRol = PERFILES[usuario.rol]?.etiqueta ?? usuario.rol
   return (
     <div>
-      <label htmlFor="selector-perfil" className="mb-1 block text-sm font-semibold text-papel-100">
-        Perfil de usuario
-      </label>
-      <select
-        id="selector-perfil"
-        value={perfil}
-        onChange={(evento) => cambiarPerfil(evento.target.value)}
-        className="block w-full rounded-md border border-papel-300 bg-tinta-800 px-3 py-2.5 text-base text-white"
-      >
-        {Object.keys(PERFILES).map((clave) => (
-          <option key={clave} value={clave}>
-            {PERFILES[clave].etiqueta}
-          </option>
-        ))}
-      </select>
-      <p className="mt-1 text-xs text-papel-300">Selección simulada, sin inicio de sesión.</p>
+      <p className="mb-1 text-sm font-semibold text-papel-100">Sesión activa</p>
+      <p className="text-base font-semibold text-white">{usuario.nombre}</p>
+      <p className="text-xs text-papel-300">{etiquetaRol}</p>
+      <p className="mt-0.5 break-all text-xs text-papel-300">{usuario.email}</p>
+      <Boton variante="secundario" className="mt-3 w-full" onClick={cerrarSesion}>
+        Cerrar sesión
+      </Boton>
     </div>
   )
 }
@@ -126,7 +122,7 @@ export function AppLayout({ camino, children }) {
           <Navegacion camino={camino} alNavegar={() => setMenuAbierto(false)} />
         </div>
         <div className="mt-8 space-y-5 lg:mt-0">
-          <SelectorPerfil />
+          <PanelUsuario />
           <EstadoBackend />
           <p className="text-xs text-papel-300">
             Los contratos y el asistente utilizan el backend local.

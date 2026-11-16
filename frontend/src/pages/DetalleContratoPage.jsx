@@ -4,7 +4,7 @@ import { aprobarContrato, exportarContrato, obtenerContrato } from '../api/contr
 import { campoVacio } from '../lib/datosContrato.js'
 import { formatearFecha, formatearImporte } from '../lib/formato.js'
 import { Enlace } from '../lib/router.jsx'
-import { usePerfil } from '../lib/perfil.jsx'
+import { useSesion } from '../lib/sesion.jsx'
 import { useCarga } from '../lib/useCarga.js'
 import { Aviso } from '../components/ui/Aviso.jsx'
 import { Boton, clasesBoton } from '../components/ui/Boton.jsx'
@@ -102,7 +102,7 @@ function BloqueRevision({ contrato, alActualizar, perfil, setResultado }) {
     setAprobando(true)
     setErrorAprobacion('')
     try {
-      const actualizado = await aprobarContrato(contrato.id, perfil)
+      const actualizado = await aprobarContrato(contrato.id)
       setConfirmando(false)
       setResultado({
         enfocar: true,
@@ -252,7 +252,8 @@ function BloqueExportacion({ contrato, setResultado }) {
 }
 
 function PanelAcciones({ contrato, alActualizar }) {
-  const { perfil } = usePerfil()
+  const { usuario } = useSesion()
+  const perfil = usuario?.rol
   const [resultado, setResultado] = useState(null)
   const zonaResultado = useRef(null)
 

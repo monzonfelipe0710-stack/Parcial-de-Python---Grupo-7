@@ -46,10 +46,9 @@ export async function generarContrato({ id, datos }) {
   })
 }
 
-export async function aprobarContrato(id, perfil = 'empleado') {
+export async function aprobarContrato(id) {
   return solicitarApi(`/api/contratos/${codificarId(id)}/aprobar`, {
-    method: 'POST',
-    headers: { 'X-Perfil': perfil }
+    method: 'POST'
   })
 }
 

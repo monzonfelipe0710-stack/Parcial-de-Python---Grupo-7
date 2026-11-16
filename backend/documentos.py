@@ -1,12 +1,13 @@
 
 import os
+import tempfile
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
 from docx import Document
 
-from backend import validaciones
+from backend import cifrado, validaciones
 
 
 RAIZ_PROYECTO = Path(__file__).resolve().parent.parent
@@ -329,7 +330,31 @@ def generar_documento_contrato(contrato):
     DIRECTORIO_GENERADOS.mkdir(parents=True, exist_ok=True)
     ruta_salida = DIRECTORIO_GENERADOS / f"{contrato['id']}.docx"
     documento.save(ruta_salida)
+    if cifrado.cifrado_activo():
+        ruta_salida.write_bytes(cifrado.cifrar_bytes(ruta_salida.read_bytes()))
     return ruta_salida
+
+
+def leer_archivo_generado(ruta):
+    """Devuelve los bytes del documento, descifrándolos si hace falta."""
+
+    return cifrado.descifrar_bytes(Path(ruta).read_bytes())
+
+
+def _cargar_documento(ruta):
+    """Abre un DOCX en disco (puede estar cifrado)."""
+
+    if not cifrado.cifrado_activo():
+        return Document(ruta)
+
+    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as temporal:
+        temporal.write(cifrado.descifrar_bytes(Path(ruta).read_bytes()))
+        ruta_temporal = temporal.name
+
+    try:
+        return Document(ruta_temporal)
+    finally:
+        os.unlink(ruta_temporal)
 
 
 def generar_documento_pdf(contrato):
@@ -338,7 +363,7 @@ def generar_documento_pdf(contrato):
 
     ruta_docx = DIRECTORIO_GENERADOS / f"{contrato['id']}.docx"
     ruta_pdf = DIRECTORIO_GENERADOS / f"{contrato['id']}.pdf"
-    documento = Document(ruta_docx)
+    documento = _cargar_documento(ruta_docx)
 
     lienzo = canvas.Canvas(str(ruta_pdf), pagesize=A4)
     _, alto = A4
@@ -356,4 +381,6 @@ def generar_documento_pdf(contrato):
 
     lienzo.drawText(texto)
     lienzo.save()
+    if cifrado.cifrado_activo():
+        ruta_pdf.write_bytes(cifrado.cifrar_bytes(ruta_pdf.read_bytes()))
     return ruta_pdf

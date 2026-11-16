@@ -1,4 +1,5 @@
 import { formatearFechaHora } from '../lib/formato.js'
+import { PERFILES } from '../config/campos.js'
 import { Tarjeta } from '../components/ui/Tarjeta.jsx'
 
 function DatoResumen({ rotulo, valor }) {
@@ -46,8 +47,16 @@ export function Trazabilidad({ contrato }) {
               <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-texto-suave">
                 <time dateTime={evento.fecha}>{formatearFechaHora(evento.fecha)}</time>
                 <span>Usuario: {evento.usuario}</span>
+                {evento.rol ? (
+                  <span>Rol: {PERFILES[evento.rol]?.etiqueta ?? evento.rol}</span>
+                ) : null}
               </p>
               <p className="mt-1 text-texto">{evento.accion}</p>
+              {evento.campos?.length ? (
+                <p className="mt-1 text-sm text-texto-suave">
+                  Campos aportados: {evento.campos.join(', ')}
+                </p>
+              ) : null}
             </li>
           ))}
         </ol>

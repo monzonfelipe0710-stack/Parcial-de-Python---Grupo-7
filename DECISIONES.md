@@ -60,3 +60,14 @@ Este archivo resume qué se implementó y **por qué se eligió así**, de forma
 - **Por qué:** la regla fundamental es que la IA propone y Python controla. Así se evita que datos inventados, inválidos o de ejemplo terminen en el contrato, sin cambiar el modelo ni la arquitectura.
 - **Revisión profesional:** se mantiene igual. Un contrato generado queda `pendiente_revision` y solo un perfil profesional puede aprobarlo; ni la IA ni las validaciones lo aprueban automáticamente.
 
+## 12. Login, trazabilidad y confidencialidad
+
+- **Qué se hizo:** se agregaron cuentas y sesiones reales en el backend, auditoría de acciones y cifrado opcional en disco.
+  - `autenticacion.py`: registro y login con contraseñas hasheadas (PBKDF2-SHA256, 120.000 iteraciones) y **token de sesión aleatorio** guardado en SQLite (`sesiones`), con vencimiento a 7 días. Los roles (`empleado`/`profesional`) salen de la cuenta.
+  - `main.py`: endpoints `/api/auth/registro`, `/api/auth/login`, `/api/auth/logout`, `/api/auth/yo`. Los endpoints de contratos y asistente exigen `Authorization: Bearer`; `/api/estado` y `/api/modelo` quedan públicos. Aprobar exige rol profesional. Se eliminó el header falsificable `X-Perfil`.
+  - `almacen.py`: tablas `usuarios`, `sesiones` y `auditoria`. El historial del contrato guarda el **usuario real**, su rol y **qué campos aportó**. La auditoría registra quién hizo qué, cuándo y con qué detalle (incluidos los mensajes al asistente y los datos aceptados).
+  - `cifrado.py` + `documentos.py` + `almacen.py`: cifrado **opcional** (Fernet, vía `CLAVE_CIFRADO`) del contenido de los contratos y de los DOCX/PDF generados. Sin clave, todo sigue funcionando en claro (compatible con datos previos).
+- **Por qué:** sin login, el rol se podía falsificar desde el navegador; además no se sabía quién aportó cada dato ni quién aprobó. El cifrado protege la información sensible (datos de clientes) si alguien accede al archivo de disco.
+- **Por qué así:** token simple en SQLite para no sumar dependencias (más allá de `cryptography`, usada solo para el cifrado opcional); el cifrado es opcional para no romper entornos sin la clave ni los datos ya guardados.
+
+

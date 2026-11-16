@@ -1,3 +1,6 @@
+import os
+import shutil
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -5,8 +8,10 @@ from unittest.mock import Mock, patch
 
 from docx import Document
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
-from backend import almacen, documentos, gestor_datos, ia, validaciones
+from backend import almacen, autenticacion, documentos, gestor_datos, ia, validaciones
+from backend import main as backend_main
 from backend.main import (
     MensajeAsistenteRequest,
     MensajeHistorial,
@@ -348,6 +353,214 @@ class BackendTests(unittest.TestCase):
             resultado["datos"]["parte_contratante"]["documento"], ""
         )
         self.assertIn("parte_contratante.documento", resultado["errores"])
+
+
+class AutenticacionCifradoAuditoriaTests(unittest.TestCase):
+    def _ruta_temporal(self):
+        directorio = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directorio, ignore_errors=True)
+        return Path(directorio) / "contratos.sqlite3"
+
+    def test_register_login_and_session_lifecycle(self):
+        ruta = self._ruta_temporal()
+        with patch.object(almacen, "RUTA_BASE_DATOS", ruta):
+            almacen.inicializar_base_datos()
+            usuario = autenticacion.registrar_usuario(
+                "Ana Pérez", "Ana@Example.com", "secreto123", "empleado"
+            )
+            self.assertEqual(usuario["rol"], "empleado")
+            self.assertEqual(usuario["email"], "ana@example.com")
+            self.assertNotIn("password_hash", usuario)
+
+            autenticado, token = autenticacion.iniciar_sesion(
+                "ana@example.com", "secreto123"
+            )
+            self.assertEqual(autenticado["id"], usuario["id"])
+            self.assertTrue(token)
+            self.assertEqual(
+                autenticacion.usuario_por_token(token)["id"], usuario["id"]
+            )
+
+            autenticacion.cerrar_sesion(token)
+            self.assertIsNone(autenticacion.usuario_por_token(token))
+
+    def test_password_is_hashed_and_credentials_are_validated(self):
+        ruta = self._ruta_temporal()
+        with patch.object(almacen, "RUTA_BASE_DATOS", ruta):
+            almacen.inicializar_base_datos()
+            autenticacion.registrar_usuario(
+                "Ana", "ana@example.com", "secreto123", "empleado"
+            )
+
+            fila = almacen.obtener_usuario_por_email("ana@example.com")
+            self.assertTrue(fila["password_hash"].startswith("pbkdf2_sha256$"))
+            self.assertNotIn("secreto123", fila["password_hash"])
+            self.assertTrue(
+                autenticacion.verificar_password(
+                    "secreto123", fila["password_hash"]
+                )
+            )
+
+            with self.assertRaises(autenticacion.ErrorAutenticacion) as error:
+                autenticacion.iniciar_sesion("ana@example.com", "incorrecta")
+            self.assertEqual(error.exception.codigo, 401)
+
+            with self.assertRaises(autenticacion.ErrorAutenticacion):
+                autenticacion.registrar_usuario(
+                    "Otra", "ana@example.com", "secreto123"
+                )
+            with self.assertRaises(autenticacion.ErrorAutenticacion):
+                autenticacion.registrar_usuario(
+                    "Bob", "bob@example.com", "secreto123", "administrador"
+                )
+            with self.assertRaises(autenticacion.ErrorAutenticacion):
+                autenticacion.registrar_usuario("Bob", "bob@example.com", "corta")
+
+    def test_expired_session_is_rejected_and_removed(self):
+        ruta = self._ruta_temporal()
+        with patch.object(almacen, "RUTA_BASE_DATOS", ruta):
+            almacen.inicializar_base_datos()
+            usuario = autenticacion.registrar_usuario(
+                "Ana", "ana@example.com", "secreto123", "empleado"
+            )
+            almacen.guardar_sesion(
+                token="vencido",
+                usuario_id=usuario["id"],
+                creado_en="2020-01-01T00:00:00+00:00",
+                expira_en="2020-01-02T00:00:00+00:00",
+            )
+
+            self.assertIsNone(autenticacion.usuario_por_token("vencido"))
+            self.assertIsNone(almacen.obtener_sesion("vencido"))
+
+    def test_contract_is_encrypted_at_rest_when_key_is_configured(self):
+        ruta = self._ruta_temporal()
+        with patch.dict(os.environ, {"CLAVE_CIFRADO": "clave-de-prueba-1234"}):
+            with patch.object(almacen, "RUTA_BASE_DATOS", ruta):
+                almacen.inicializar_base_datos()
+                contrato = almacen.crear_contrato(
+                    modelo="CONT-001",
+                    estado="borrador",
+                    creado_por="Ana",
+                    datos=DATOS_VALIDOS,
+                    accion="Borrador creado",
+                )
+
+                conexion = sqlite3.connect(ruta)
+                crudo = conexion.execute(
+                    "SELECT contenido FROM contratos"
+                ).fetchone()[0]
+                conexion.close()
+
+                self.assertNotIn("Empresa de prueba S.A.", crudo)
+                self.assertEqual(
+                    almacen.obtener_contrato(contrato["id"])["datos"],
+                    DATOS_VALIDOS,
+                )
+
+    def test_audit_records_who_did_what_and_is_encrypted_at_rest(self):
+        ruta = self._ruta_temporal()
+        with patch.dict(os.environ, {"CLAVE_CIFRADO": "clave-de-prueba-1234"}):
+            with patch.object(almacen, "RUTA_BASE_DATOS", ruta):
+                almacen.inicializar_base_datos()
+                almacen.registrar_evento(
+                    {"id": 1, "nombre": "Ana", "rol": "empleado"},
+                    "Mensaje al asistente",
+                    detalle={"mensaje": "El servicio es soporte", "datosAceptados": {}},
+                )
+
+                conexion = sqlite3.connect(ruta)
+                detalle_crudo = conexion.execute(
+                    "SELECT detalle FROM auditoria"
+                ).fetchone()[0]
+                conexion.close()
+                self.assertNotIn("El servicio es soporte", detalle_crudo)
+
+                eventos = almacen.listar_auditoria()
+                self.assertEqual(eventos[0]["accion"], "Mensaje al asistente")
+                self.assertEqual(eventos[0]["usuario_nombre"], "Ana")
+                self.assertEqual(
+                    eventos[0]["detalle"]["mensaje"], "El servicio es soporte"
+                )
+
+    def test_endpoints_require_session_and_professional_role(self):
+        ruta = self._ruta_temporal()
+        with patch.object(almacen, "RUTA_BASE_DATOS", ruta):
+            with TestClient(backend_main.app) as cliente:
+                self.assertEqual(cliente.get("/api/contratos").status_code, 401)
+                self.assertEqual(
+                    cliente.post(
+                        "/api/asistente/mensaje", json={"mensaje": "Hola"}
+                    ).status_code,
+                    401,
+                )
+
+                registro = cliente.post(
+                    "/api/auth/registro",
+                    json={
+                        "nombre": "Ana",
+                        "email": "ana@example.com",
+                        "password": "secreto123",
+                        "rol": "empleado",
+                    },
+                )
+                self.assertEqual(registro.status_code, 201)
+                token = registro.json()["token"]
+
+                cabecera = {"Authorization": f"Bearer {token}"}
+                self.assertEqual(
+                    cliente.get("/api/contratos", headers=cabecera).status_code, 200
+                )
+                self.assertEqual(
+                    cliente.get(
+                        "/api/contratos", headers={"Authorization": "Bearer falso"}
+                    ).status_code,
+                    401,
+                )
+
+                contrato = almacen.crear_contrato(
+                    modelo="CONT-001",
+                    estado="pendiente_revision",
+                    creado_por="Ana",
+                    datos=DATOS_VALIDOS,
+                    accion="Generado",
+                )
+
+                # Un empleado no puede aprobar ni ver la auditoría.
+                self.assertEqual(
+                    cliente.post(
+                        f"/api/contratos/{contrato['id']}/aprobar", headers=cabecera
+                    ).status_code,
+                    403,
+                )
+                self.assertEqual(
+                    cliente.get("/api/auditoria", headers=cabecera).status_code, 403
+                )
+
+                registro_pro = cliente.post(
+                    "/api/auth/registro",
+                    json={
+                        "nombre": "Pro",
+                        "email": "pro@example.com",
+                        "password": "secreto123",
+                        "rol": "profesional",
+                    },
+                )
+                cabecera_pro = {
+                    "Authorization": f"Bearer {registro_pro.json()['token']}"
+                }
+
+                aprobado = cliente.post(
+                    f"/api/contratos/{contrato['id']}/aprobar", headers=cabecera_pro
+                )
+                self.assertEqual(aprobado.status_code, 200)
+                self.assertEqual(aprobado.json()["estado"], "aprobado")
+                self.assertEqual(aprobado.json()["revision"]["profesional"], "Pro")
+
+                auditoria = cliente.get("/api/auditoria", headers=cabecera_pro)
+                self.assertEqual(auditoria.status_code, 200)
+                acciones = [evento["accion"] for evento in auditoria.json()]
+                self.assertIn("Contrato aprobado", acciones)
 
 
 if __name__ == "__main__":

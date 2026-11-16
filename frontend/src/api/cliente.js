@@ -1,6 +1,30 @@
 const URL_CONFIGURADA = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 export const URL_API = URL_CONFIGURADA.replace(/\/+$/, '')
 
+export const CLAVE_SESION = 'contratos.sesion'
+
+let tokenActual = null
+
+export function establecerToken(token) {
+  tokenActual = token ?? null
+}
+
+function leerTokenGuardado() {
+  try {
+    const bruto = window.localStorage.getItem(CLAVE_SESION)
+    if (!bruto) {
+      return null
+    }
+    return JSON.parse(bruto)?.token ?? null
+  } catch {
+    return null
+  }
+}
+
+// Se restaura antes de montar React para que las primeras llamadas protegidas
+// ya viajen con el token guardado.
+tokenActual = leerTokenGuardado()
+
 export class ErrorApi extends Error {
   constructor(mensaje, codigo = 500, detalle = null) {
     super(mensaje)
@@ -14,7 +38,12 @@ async function ejecutarFetch(ruta, opciones = {}, tiempoLimite = 15000) {
   const controlador = new AbortController()
   const temporizador = setTimeout(() => controlador.abort(), tiempoLimite)
   const encabezados = new Headers(opciones.headers ?? {})
+  const tokenUsado = tokenActual
   const opcionesFetch = { ...opciones, headers: encabezados, signal: controlador.signal }
+
+  if (tokenUsado && !encabezados.has('Authorization')) {
+    encabezados.set('Authorization', `Bearer ${tokenUsado}`)
+  }
 
   if (opciones.body && !encabezados.has('Content-Type')) {
     encabezados.set('Content-Type', 'application/json')
@@ -23,6 +52,9 @@ async function ejecutarFetch(ruta, opciones = {}, tiempoLimite = 15000) {
   try {
     const respuesta = await fetch(`${URL_API}${ruta}`, opcionesFetch)
     if (!respuesta.ok) {
+      if (respuesta.status === 401 && tokenUsado) {
+        window.dispatchEvent(new CustomEvent('contratos:sesion-expirada'))
+      }
       let contenido
       try {
         contenido = await respuesta.json()
