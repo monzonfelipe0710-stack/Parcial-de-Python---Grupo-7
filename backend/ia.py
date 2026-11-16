@@ -28,6 +28,13 @@ MESES_POR_NOMBRE = {nombre: numero for numero, nombre in enumerate(MESES, start=
 
 CLAVES_DE_FECHA = ("fecha_celebracion", "fecha_inicio", "fecha_fin")
 CLAVES_NUMERICAS = ("importe_total", "cantidad_cuotas", "importe_cuota")
+CLAVES_COMPARTIDAS = set(CAMPOS_CONTRATO["parte_contratante"]) & set(
+    CAMPOS_CONTRATO["parte_prestadora"]
+)
+PALABRAS_DE_SECCION = {
+    "parte_contratante": "contratante",
+    "parte_prestadora": "prestador",
+}
 ABREVIATURAS_DE_DOMICILIO = (
     "av",
     "avda",
@@ -152,13 +159,17 @@ def _normalizar_para_comparar(valor):
     )
 
 
-def _valor_respaldado_por_mensaje(valor, mensaje, clave, contexto=""):
+def _valor_respaldado_por_mensaje(valor, mensaje, clave, seccion=None, contexto=""):
     if isinstance(valor, bool) or not isinstance(valor, (str, int, float)):
         return False
 
     valor_texto = str(valor).strip()
     mensaje_normalizado = _normalizar_para_comparar(mensaje)
     texto_con_contexto = _normalizar_para_comparar(f"{mensaje} {contexto}")
+
+    if clave in CLAVES_COMPARTIDAS and seccion in PALABRAS_DE_SECCION:
+        if PALABRAS_DE_SECCION[seccion] not in texto_con_contexto:
+            return False
 
     if clave in ("documento", "documento_representante"):
         if (
@@ -444,7 +455,7 @@ def extraer_datos(mensaje, contexto=""):
                 ).strip()
 
             if not _valor_respaldado_por_mensaje(
-                valor, mensaje, clave, contexto=contexto
+                valor, mensaje, clave, seccion, contexto
             ):
                 continue
 
