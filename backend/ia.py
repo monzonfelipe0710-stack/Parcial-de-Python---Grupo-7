@@ -4,6 +4,7 @@ import json
 import re
 import unicodedata
 from datetime import date
+from decimal import Decimal, InvalidOperation
 
 from backend.campos_contrato import CAMPOS_CONTRATO
 
@@ -23,6 +24,10 @@ MESES = (
     "noviembre",
     "diciembre",
 )
+MESES_POR_NOMBRE = {nombre: numero for numero, nombre in enumerate(MESES, start=1)}
+
+CLAVES_DE_FECHA = ("fecha_celebracion", "fecha_inicio", "fecha_fin")
+CLAVES_NUMERICAS = ("importe_total", "cantidad_cuotas", "importe_cuota")
 ABREVIATURAS_DE_DOMICILIO = (
     "av",
     "avda",
@@ -46,6 +51,96 @@ ABREVIATURAS_DE_DOMICILIO = (
     "km",
 )
 PALABRAS_DE_INICIO_DE_ORACION = ("el", "la", "los", "las", "y", "su", "sus")
+
+PATRON_FECHA_ISO = r"(?<!\d)(?P<anio>\d{4})-(?P<mes>\d{1,2})-(?P<dia>\d{1,2})(?!\d)"
+PATRON_FECHA_LARGA = (
+    r"(?<!\d)(?P<dia>\d{1,2})\s+de\s+(?P<mes>"
+    + "|".join(MESES_POR_NOMBRE)
+    + r")\s+de\s+(?P<anio>\d{4})(?!\d)"
+)
+PATRONES_DE_FECHA = (PATRON_FECHA_ISO, PATRON_FECHA_LARGA)
+
+
+def _solo_digitos(texto):
+    return "".join(caracter for caracter in texto if caracter.isdigit())
+
+
+def _crear_fecha(coincidencia):
+    mes = coincidencia.group("mes")
+    if mes.isdigit():
+        numero_mes = int(mes)
+    else:
+        numero_mes = MESES_POR_NOMBRE[mes.casefold()]
+
+    try:
+        return date(
+            int(coincidencia.group("anio")),
+            numero_mes,
+            int(coincidencia.group("dia")),
+        )
+    except ValueError:
+        return None
+
+
+def _interpretar_fecha(valor):
+    if not isinstance(valor, str):
+        return None
+
+    texto = valor.strip()
+    for patron in PATRONES_DE_FECHA:
+        coincidencia = re.fullmatch(patron, texto, flags=re.IGNORECASE)
+        if coincidencia:
+            return _crear_fecha(coincidencia)
+
+    return None
+
+
+def _fechas_del_mensaje(mensaje):
+    fechas = set()
+    for patron in PATRONES_DE_FECHA:
+        for coincidencia in re.finditer(patron, mensaje, flags=re.IGNORECASE):
+            fecha = _crear_fecha(coincidencia)
+            if fecha is not None:
+                fechas.add(fecha)
+    return fechas
+
+
+def _interpretar_numero(valor):
+    if isinstance(valor, bool):
+        return None
+
+    if isinstance(valor, (int, float)):
+        texto = str(valor)
+    elif isinstance(valor, str):
+        texto = valor.replace("$", "").replace(" ", "").strip()
+    else:
+        return None
+
+    if "," in texto:
+        texto = texto.replace(".", "").replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", texto):
+        texto = texto.replace(".", "")
+
+    try:
+        numero = Decimal(texto)
+    except InvalidOperation:
+        return None
+
+    if not numero.is_finite():
+        return None
+
+    return numero
+
+
+def _numeros_del_mensaje(mensaje):
+    numeros = set()
+    for texto in re.findall(r"\d+(?:[.,\-/]\d+)*", mensaje):
+        if "-" in texto or "/" in texto:
+            continue
+        numero = _interpretar_numero(texto)
+        if numero is not None:
+            numeros.add(numero)
+    return numeros
 
 
 def _normalizar_para_comparar(valor):
@@ -71,9 +166,20 @@ def _valor_respaldado_por_mensaje(valor, mensaje, clave, contexto=""):
             and "representante" not in texto_con_contexto
         ):
             return False
-        digitos_valor = "".join(caracter for caracter in valor_texto if caracter.isdigit())
-        digitos_mensaje = "".join(caracter for caracter in mensaje if caracter.isdigit())
-        return bool(digitos_valor) and digitos_valor in digitos_mensaje
+        digitos_valor = _solo_digitos(valor_texto)
+        documentos_del_mensaje = {
+            _solo_digitos(documento)
+            for documento in re.findall(r"\d+(?:[.\-]\d+)*", mensaje)
+        }
+        return bool(digitos_valor) and digitos_valor in documentos_del_mensaje
+
+    if clave in CLAVES_DE_FECHA:
+        fecha = _interpretar_fecha(valor)
+        return fecha is not None and fecha in _fechas_del_mensaje(mensaje)
+
+    if clave in CLAVES_NUMERICAS:
+        numero = _interpretar_numero(valor)
+        return numero is not None and numero in _numeros_del_mensaje(mensaje)
 
     if clave == "domicilio" and not any(
         referencia in texto_con_contexto for referencia in ("domicilio", "direccion")
@@ -104,20 +210,7 @@ def _valor_respaldado_por_mensaje(valor, mensaje, clave, contexto=""):
             return False
 
     valor_normalizado = _normalizar_para_comparar(valor_texto)
-    if valor_normalizado and valor_normalizado in mensaje_normalizado:
-        return True
-
-    if clave in ("fecha_celebracion", "fecha_inicio", "fecha_fin"):
-        try:
-            fecha = date.fromisoformat(valor_texto)
-        except ValueError:
-            return False
-        fecha_en_espanol = (
-            f"{fecha.day} de {MESES[fecha.month - 1]} de {fecha.year}"
-        )
-        return _normalizar_para_comparar(fecha_en_espanol) in mensaje_normalizado
-
-    return False
+    return bool(valor_normalizado) and valor_normalizado in mensaje_normalizado
 
 
 def _cortar_domicilio(valor):
